@@ -1,0 +1,82 @@
+# Windows build of the recompiled game (ReXGlue project).
+#
+# This folder is also where code generation runs: generated/ (local only, never
+# committed) holds the C++ translated from the game. SDK boilerplate lives in
+# generated/rexglue.cmake.
+
+cmake_minimum_required(VERSION 3.25)
+# LLVM's resource compiler, when it's there, as in the launcher: given Windows'
+# rc.exe, CMake's clang preprocessing step for the .rc hangs.
+if(NOT CMAKE_RC_COMPILER)
+  find_program(LLVM_RC llvm-rc HINTS "$ENV{ProgramFiles}/LLVM/bin")
+  if(LLVM_RC)
+    set(CMAKE_RC_COMPILER "${LLVM_RC}")
+  endif()
+endif()
+if(ANDROID)
+    project(fifawc14 LANGUAGES CXX)
+else()
+    project(fifawc14 LANGUAGES CXX RC)
+endif()
+
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Target the SSE4.2 baseline (Intel Nehalem / AMD Bulldozer and newer, the same as
+# the SDK) rather than AVX2 (-march=x86-64-v3): AVX2 kept processors from before
+# 2013 (and some newer low-end ones) from starting the game at all.
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64|x86_64")
+    add_compile_options(-march=x86-64-v2)
+endif()
+
+# Release builds keep line tables (function names and line numbers, no
+# variables) in a PDB beside each binary, for reading players' crash reports.
+# The code is the same; the PDBs go in the private symbols zip, not the release
+# (installer/package.ps1). /OPT:REF,ICF as without /DEBUG, so the size stays.
+if(WIN32)
+    add_compile_options($<$<CONFIG:Release>:-gline-tables-only> $<$<CONFIG:Release>:-gcodeview>)
+    add_link_options($<$<CONFIG:Release>:LINKER:/DEBUG> $<$<CONFIG:Release>:LINKER:/OPT:REF>
+                     $<$<CONFIG:Release>:LINKER:/OPT:ICF>)
+endif()
+
+include(generated/rexglue.cmake)
+
+# Sources: the Windows app (src/) and the game fixes (fixes/).
+set(FIXES ${CMAKE_CURRENT_SOURCE_DIR}/fixes)
+set(FIFAWC14_SOURCES
+    src/main.cpp
+    src/data_folder.cpp
+    src/fps_counter.cpp
+    src/quit_shortcut.cpp
+    src/frame_rate.cpp
+    src/launcher_redirect.cpp
+    src/game_window.cpp
+    ${FIXES}/kernel_stubs.cpp
+    ${FIXES}/gpu_memcpy.cpp
+    ${FIXES}/boot_race_fixes.cpp
+    ${FIXES}/present_interval.cpp
+    ${FIXES}/lua_errors.cpp
+    ${FIXES}/ring_wait_sleep.cpp
+)
+
+if(WIN32)
+    list(APPEND FIFAWC14_SOURCES src/thread_stats.cpp)
+    add_executable(fifawc14 WIN32 ${FIFAWC14_SOURCES})
+elseif(ANDROID)
+    # SDL's Java activity loads the game as a shared library.
+    list(APPEND FIFAWC14_SOURCES src/thread_stats_stub.cpp src/sampler_android.cpp)
+    add_library(fifawc14 SHARED ${FIFAWC14_SOURCES})
+else()
+    add_executable(fifawc14 ${FIFAWC14_SOURCES})
+endif()
+
+rexglue_setup_target(fifawc14 GPU_PLUGINS xenos)
+# Properties, Details in Explorer: name, version, publisher.
+if(WIN32)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/../installer/version_resource.cmake)
+    add_version_resource(fifawc14 "2014 FIFA World Cup Brazil: Recompiled - Game" "fifawc14.exe")
+endif()
+# The game window's 16:9 resizing hooks the window with SetWindowSubclass.
+if(WIN32)
+    target_link_libraries(fifawc14 PRIVATE comctl32)
+endif()

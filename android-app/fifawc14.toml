@@ -1,0 +1,15 @@
+game_data_root = "/storage/emulated/0/WC14/wc14.iso"
+gpu_plugin = "xenos"
+log_file = "/storage/emulated/0/WC14/fifawc14.log"
+log_level = "info"
+
+gpu_allow_invalid_fetch_constants = true
+readback_resolve = "none"
+protect_zero = false
+execute_unclipped_draw_vs_on_cpu = true
+async_shader_compilation = false
+vulkan_submit_on_primary_buffer_end = false
+clear_memory_page_state = false
+present_interval_cap = 1
+frame_rate_floor = 60
+native_2x_msaa = true

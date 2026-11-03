@@ -1,0 +1,96 @@
+// Direct variant of resolve_fast_32bpp_1x2xmsaa for 8888 render targets
+// without MSAA: reads the pixels from the host render target itself instead of
+// the EDRAM buffer the render target would first have to be dumped to. The
+// rest is the fast resolve: R/B swap, endian swap, tiled destination address.
+// The render target's origin must be the resolve's EDRAM base tile.
+
+#include "endian.xesli"
+// The EDRAM buffer isn't read, but helpers in resolve.xesli name it: declare it
+// in another register (unused, so not in the bytecode), the render target takes
+// the source register.
+#define XE_RESOLVE_COPY_EDRAM_IS_UINT_VECTOR_BUFFER
+#undef uint_vector_buffer_declare_xe
+#define uint_vector_buffer_declare_xe(name, glsl_set, glsl_binding, hlsl_t, \
+                                      hlsl_t_space)                         \
+    ByteAddressBuffer name : register(t1, hlsl_t_space);
+#include "resolve.xesli"
+
+// R8G8B8A8_UNORM view of the render target: its own format. 8888 render
+// targets are fully typed, so a UINT view of them isn't allowed (AMD and Nvidia
+// accept it, Intel removes the device). The bytes come back exactly: a UNORM
+// value times 255 is within a rounding error of the byte it was.
+Texture2D<float4> xe_resolve_source_rt : register(t0, space0);
+
+uint4_xe XeDirectResolveLoad(int2 pixel) {
+  return uint4_xe(xe_resolve_source_rt.Load(int3(pixel, 0)) * 255.0 + 0.5);
+}
+
+array_buffer_wo_declare_xe(uint4_xe, xe_resolve_dest, set=1, binding=0, u0,
+                           space0)
+#define LOCAL_SIZE_X_XE 8
+#define LOCAL_SIZE_Y_XE 8
+#define LOCAL_SIZE_Z_XE 1
+entry_bindings_begin_compute_xe
+  XE_RESOLVE_PUSH_CONST_BINDING
+  entry_binding_next_xe
+  array_buffer_wo_binding_xe(uint4_xe, xe_resolve_dest, buffer(1))
+entry_bindings_end_inputs_begin_compute_xe
+  entry_in_global_thread_id_xe
+entry_inputs_end_code_begin_compute_xe
+{
+  // 1 thread = 8 host pixels.
+  XeResolveInfo resolve_info = XeResolveGetInfo(pass_push_consts_xe);
+  dont_flatten_xe
+  if (in_global_thread_id_xe.x >= resolve_info.width_div_8_scaled) {
+    return;
+  }
+  uint2_xe pixel_index = in_global_thread_id_xe.xy << uint2_xe(3u, 0u);
+  // The same pixel the fast resolve reads from the EDRAM, relative to the base
+  // tile, which is the render target's origin.
+  int2 source =
+      int2(uint2_xe(pixel_index.x,
+                    max(pixel_index.y,
+                        resolve_info.half_pixel_offset_fill_source.y)) +
+           resolve_info.edram_offset_scaled);
+  uint4_xe pixels_0123, pixels_4567;
+  uint4_xe c;
+  c = XeDirectResolveLoad(source + int2(0, 0));
+  pixels_0123.x = c.r | (c.g << 8u) | (c.b << 16u) | (c.a << 24u);
+  c = XeDirectResolveLoad(source + int2(1, 0));
+  pixels_0123.y = c.r | (c.g << 8u) | (c.b << 16u) | (c.a << 24u);
+  c = XeDirectResolveLoad(source + int2(2, 0));
+  pixels_0123.z = c.r | (c.g << 8u) | (c.b << 16u) | (c.a << 24u);
+  c = XeDirectResolveLoad(source + int2(3, 0));
+  pixels_0123.w = c.r | (c.g << 8u) | (c.b << 16u) | (c.a << 24u);
+  c = XeDirectResolveLoad(source + int2(4, 0));
+  pixels_4567.x = c.r | (c.g << 8u) | (c.b << 16u) | (c.a << 24u);
+  c = XeDirectResolveLoad(source + int2(5, 0));
+  pixels_4567.y = c.r | (c.g << 8u) | (c.b << 16u) | (c.a << 24u);
+  c = XeDirectResolveLoad(source + int2(6, 0));
+  pixels_4567.z = c.r | (c.g << 8u) | (c.b << 16u) | (c.a << 24u);
+  c = XeDirectResolveLoad(source + int2(7, 0));
+  pixels_4567.w = c.r | (c.g << 8u) | (c.b << 16u) | (c.a << 24u);
+  dont_flatten_xe
+  if (pixel_index.x == 0u &&
+      resolve_info.half_pixel_offset_fill_source.x != 0u) {
+    if (resolve_info.half_pixel_offset_fill_source.x >= 2u) {
+      if (resolve_info.half_pixel_offset_fill_source.x >= 3u) {
+        pixels_0123.z = pixels_0123.w;
+      }
+      pixels_0123.y = pixels_0123.z;
+    }
+    pixels_0123.x = pixels_0123.y;
+  }
+  XeResolveSwap8PixelsRedBlue32bpp(resolve_info, pixels_0123, pixels_4567);
+  uint dest_address =
+      XeResolveDestPixelAddress(resolve_info, pixel_index, 2u) >> 4u;
+  array_buffer_store_xe(
+      xe_resolve_dest, dest_address,
+      XeEndianSwap32(pixels_0123, resolve_info.dest_endian_128));
+  dest_address += XeResolveDestRightConsecutiveBlocksOffset(
+                      pixel_index.x, 2u, resolve_info.resolution_scale) >> 4u;
+  array_buffer_store_xe(
+      xe_resolve_dest, dest_address,
+      XeEndianSwap32(pixels_4567, resolve_info.dest_endian_128));
+}
+entry_code_end_compute_xe

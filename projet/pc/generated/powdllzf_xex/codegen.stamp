@@ -1,0 +1,31 @@
+{
+  "fingerprint": "8c4e9114b66ff65f564542f84cc73458",
+  "outputs": [
+    "codegen.partition.json",
+    "fifawc14_funcs.0.h",
+    "fifawc14_funcs.1.h",
+    "fifawc14_funcs.2.h",
+    "fifawc14_funcs.3.h",
+    "fifawc14_funcs.4.h",
+    "fifawc14_funcs.5.h",
+    "fifawc14_funcs.6.h",
+    "fifawc14_funcs.7.h",
+    "fifawc14_funcs.8.h",
+    "fifawc14_funcs.h",
+    "fifawc14_init.cpp",
+    "fifawc14_init.h",
+    "fifawc14_pch.h",
+    "fifawc14_recomp.0.cpp",
+    "fifawc14_recomp.1.cpp",
+    "fifawc14_recomp.2.cpp",
+    "fifawc14_recomp.3.cpp",
+    "fifawc14_recomp.4.cpp",
+    "fifawc14_recomp.5.cpp",
+    "fifawc14_recomp.6.cpp",
+    "fifawc14_recomp.7.cpp",
+    "fifawc14_recomp.8.cpp",
+    "fifawc14_register.cpp",
+    "sources.cmake"
+  ],
+  "version": 1
+}

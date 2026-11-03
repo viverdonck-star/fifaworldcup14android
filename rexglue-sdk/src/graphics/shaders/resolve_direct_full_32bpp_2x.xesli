@@ -1,0 +1,118 @@
+// Direct variant of resolve_full_32bpp for 8888 render targets with 2x MSAA:
+// reads the samples from the host render target itself instead of the EDRAM
+// buffer the render target would first have to be dumped to. The rest is the
+// full resolve: averaging the selected samples (XeResolveLoad4RGBAColors with
+// 2x MSAA), exponent bias, R/B swap, packing to the destination format, endian
+// swap, tiled destination address. The render target's origin must be the
+// resolve's EDRAM base tile.
+//
+// Guest sample 0 is the top one, 1 the bottom one; the host samples are what
+// draw_util::GetD3D10SampleIndexForGuest2xMSAA picks: with native 2x
+// (XE_DIRECT_RESOLVE_NATIVE_2X_MSAA) 1 and 0, with 2x emulated by 4x MSAA 0
+// and 3.
+
+#include "endian.xesli"
+#include "pixel_formats.xesli"
+// The EDRAM buffer isn't read, but helpers in resolve.xesli name it: declare it
+// in another register (unused, so not in the bytecode), the render target takes
+// the source register.
+#define XE_RESOLVE_COPY_EDRAM_IS_UINT_VECTOR_BUFFER
+#undef uint_vector_buffer_declare_xe
+#define uint_vector_buffer_declare_xe(name, glsl_set, glsl_binding, hlsl_t, \
+                                      hlsl_t_space)                         \
+    ByteAddressBuffer name : register(t1, hlsl_t_space);
+#include "resolve.xesli"
+
+// R8G8B8A8_UNORM view of the render target: its own format. 8888 render
+// targets are fully typed, so a UINT view of them isn't allowed (AMD and Nvidia
+// accept it, Intel removes the device). The bytes come back exactly: a UNORM
+// value times 255 is within a rounding error of the byte it was.
+Texture2DMS<float4> xe_resolve_source_rt : register(t0, space0);
+
+uint XeDirectResolveHostSample(uint guest_sample) {
+  #ifdef XE_DIRECT_RESOLVE_NATIVE_2X_MSAA
+    return guest_sample ? 0u : 1u;
+  #else
+    return guest_sample ? 3u : 0u;
+  #endif
+}
+
+float4_xe XeDirectResolveLoadSample(int2 pixel, uint guest_sample) {
+  // Back to the bytes and unpacked as the EDRAM path does, for the same result.
+  uint4_xe c = uint4_xe(
+      xe_resolve_source_rt.Load(pixel, XeDirectResolveHostSample(guest_sample)) * 255.0 + 0.5);
+  return XeUnpackR8G8B8A8UNorm(c.r | (c.g << 8u) | (c.b << 16u) | (c.a << 24u));
+}
+
+array_buffer_wo_declare_xe(uint4_xe, xe_resolve_dest, set=1, binding=0, u0,
+                           space0)
+#define LOCAL_SIZE_X_XE 8
+#define LOCAL_SIZE_Y_XE 8
+#define LOCAL_SIZE_Z_XE 1
+entry_bindings_begin_compute_xe
+  XE_RESOLVE_PUSH_CONST_BINDING
+  entry_binding_next_xe
+  array_buffer_wo_binding_xe(uint4_xe, xe_resolve_dest, buffer(1))
+entry_bindings_end_inputs_begin_compute_xe
+  entry_in_global_thread_id_xe
+entry_inputs_end_code_begin_compute_xe
+{
+  // 1 thread = 4 host pixels.
+  XeResolveInfo resolve_info = XeResolveGetInfo(pass_push_consts_xe);
+  uint2_xe pixel_index = in_global_thread_id_xe.xy << uint2_xe(2u, 0u);
+  // Group height can't cross resolve granularity, Y overflow check not needed.
+  dont_flatten_xe
+  if (pixel_index.x >= resolve_info.width_div_8_scaled << 3u) {
+    return;
+  }
+  // The same pixel the full resolve reads from the EDRAM, relative to the base
+  // tile, which is the render target's origin.
+  int2 source =
+      int2(uint2_xe(pixel_index.x,
+                    max(pixel_index.y,
+                        resolve_info.half_pixel_offset_fill_source.y)) +
+           resolve_info.edram_offset_scaled);
+  uint first_sample = XeResolveFirstSampleIndex(resolve_info.sample_select) & 1u;
+  float4_xe pixel_0 = XeDirectResolveLoadSample(source + int2(0, 0), first_sample);
+  float4_xe pixel_1 = XeDirectResolveLoadSample(source + int2(1, 0), first_sample);
+  float4_xe pixel_2 = XeDirectResolveLoadSample(source + int2(2, 0), first_sample);
+  float4_xe pixel_3 = XeDirectResolveLoadSample(source + int2(3, 0), first_sample);
+  float exp_bias = resolve_info.dest_exp_bias_factor;
+  dont_flatten_xe
+  if (resolve_info.sample_select >= kXenosCopySampleSelect_01) {
+    // Averaging both samples (0123 isn't possible with 2x MSAA).
+    exp_bias *= 0.5f;
+    pixel_0 += XeDirectResolveLoadSample(source + int2(0, 0), 1u);
+    pixel_1 += XeDirectResolveLoadSample(source + int2(1, 0), 1u);
+    pixel_2 += XeDirectResolveLoadSample(source + int2(2, 0), 1u);
+    pixel_3 += XeDirectResolveLoadSample(source + int2(3, 0), 1u);
+  }
+  pixel_0 *= exp_bias;
+  pixel_1 *= exp_bias;
+  pixel_2 *= exp_bias;
+  pixel_3 *= exp_bias;
+  dont_flatten_xe if (resolve_info.dest_swap) {
+    pixel_0 = pixel_0.bgra;
+    pixel_1 = pixel_1.bgra;
+    pixel_2 = pixel_2.bgra;
+    pixel_3 = pixel_3.bgra;
+  }
+  uint4_xe packed = XePack32bpp4Pixels(pixel_0, pixel_1, pixel_2, pixel_3,
+                                       resolve_info.dest_format);
+  dont_flatten_xe
+  if (pixel_index.x == 0u &&
+      resolve_info.half_pixel_offset_fill_source.x != 0u) {
+    if (resolve_info.half_pixel_offset_fill_source.x >= 2u) {
+      if (resolve_info.half_pixel_offset_fill_source.x >= 3u) {
+        packed.z = packed.w;
+      }
+      packed.y = packed.z;
+    }
+    packed.x = packed.y;
+  }
+  array_buffer_store_xe(
+      xe_resolve_dest,
+      XeResolveDestPixelAddress(resolve_info, pixel_index, 2u) >> 4u,
+      XeEndianSwap32(packed, resolve_info.dest_endian_128));
+}
+entry_code_end_compute_xe
