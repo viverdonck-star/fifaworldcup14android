@@ -25,6 +25,12 @@
 #include "vulkan_moltenvk.h"
 #endif
 
+#if REX_PLATFORM_ANDROID
+#include <dlfcn.h>
+
+#include <cstdlib>
+#endif
+
 REXCVAR_DEFINE_BOOL(vulkan_log_debug_messages, true, "UI/Vulkan", "Log Vulkan debug messages");
 
 namespace rex {
@@ -75,6 +81,32 @@ std::unique_ptr<VulkanInstance> VulkanInstance::Create(const bool with_surface,
     return nullptr;
   }
 #else
+#if REX_PLATFORM_ANDROID
+  // A custom driver (Turnip, for instance) chosen by the app: REX_VULKAN_DRIVER_DIR
+  // and REX_VULKAN_DRIVER_NAME name it, and REX_VULKAN_DRIVER_HOOK_DIR is the
+  // app's native library folder holding libadrenotools' hooks. The bridge
+  // library opens the system loader with the driver swapped in; if anything
+  // fails, the system driver is used.
+  const char* driver_dir = std::getenv("REX_VULKAN_DRIVER_DIR");
+  const char* driver_name = std::getenv("REX_VULKAN_DRIVER_NAME");
+  const char* hook_dir = std::getenv("REX_VULKAN_DRIVER_HOOK_DIR");
+  if (driver_dir && *driver_dir && driver_name && *driver_name && hook_dir && *hook_dir) {
+    using OpenVulkan = void* (*)(const char*, const char*, const char*);
+    void* bridge = dlopen("libadrenotools_bridge.so", RTLD_NOW);
+    auto open_vulkan =
+        bridge ? reinterpret_cast<OpenVulkan>(dlsym(bridge, "adrenotools_bridge_open_vulkan"))
+               : nullptr;
+    void* handle = open_vulkan ? open_vulkan(hook_dir, driver_dir, driver_name) : nullptr;
+    loader_loaded = vulkan_instance->loader_.Adopt(handle);
+    if (loader_loaded) {
+      REXLOG_INFO("Vulkan: custom driver {}/{}", driver_dir, driver_name);
+    } else {
+      REXLOG_ERROR("Vulkan: custom driver {}/{} couldn't be loaded ({}), using the system one",
+                   driver_dir, driver_name, bridge ? "driver" : dlerror());
+    }
+  }
+  if (!loader_loaded)
+#endif
   loader_loaded = vulkan_instance->loader_.Load(platform::lib_names::kVulkanLoader);
   if (!loader_loaded) {
     REXLOG_ERROR("Failed to load {}", platform::lib_names::kVulkanLoader);

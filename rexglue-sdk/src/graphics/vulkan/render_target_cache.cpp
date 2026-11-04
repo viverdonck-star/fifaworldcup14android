@@ -37,6 +37,8 @@
 #include <rex/math.h>
 #include <rex/ui/vulkan/util.h>
 
+REXCVAR_DECLARE(bool, gpu_timing);
+
 REXCVAR_DEFINE_STRING(render_target_path_vulkan, "", "GPU/Vulkan",
                       "Vulkan render target implementation path")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
@@ -63,6 +65,21 @@ REXCVAR_DEFINE_STRING(render_target_path_vulkan, "", "GPU/Vulkan",
 //     "GPU");
 
 namespace rex::graphics::vulkan {
+
+namespace {
+// The GPU work recorded while it's alive counts as `work` (gpu_timing).
+class GpuTimingScope {
+ public:
+  GpuTimingScope(VulkanCommandProcessor& processor, VulkanCommandProcessor::GpuWork work)
+      : processor_(processor) {
+    processor_.GpuTimingPush(work);
+  }
+  ~GpuTimingScope() { processor_.GpuTimingPop(); }
+
+ private:
+  VulkanCommandProcessor& processor_;
+};
+}  // namespace
 
 // Generated with `xb buildshaders`.
 namespace shaders {
@@ -1128,6 +1145,7 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
                                       VulkanSharedMemory& shared_memory,
                                       VulkanTextureCache& texture_cache,
                                       uint32_t& written_address_out, uint32_t& written_length_out) {
+  GpuTimingScope timing(command_processor_, VulkanCommandProcessor::GpuWork::kResolves);
   written_address_out = 0;
   written_length_out = 0;
 
@@ -4552,6 +4570,7 @@ void VulkanRenderTargetCache::PerformTransfersAndResolveClears(
     const uint64_t* render_target_resolve_clear_values,
     const Transfer::Rectangle* resolve_clear_rectangle) {
   assert_true(GetPath() == Path::kHostRenderTargets);
+  GpuTimingScope timing(command_processor_, VulkanCommandProcessor::GpuWork::kTransfers);
 
   const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
   uint64_t current_submission = command_processor_.GetCurrentSubmission();
@@ -4781,6 +4800,21 @@ void VulkanRenderTargetCache::PerformTransfersAndResolveClears(
 
     auto& dest_vulkan_rt = *static_cast<VulkanRenderTarget*>(dest_rt);
     RenderTargetKey dest_rt_key = dest_vulkan_rt.key();
+
+    if (REXCVAR_GET(gpu_timing)) {
+      // "xfer d4x f1 <- c1x f0": what this destination's transfers copy, for
+      // the gpu_timing log.
+      auto describe = [](RenderTargetKey key) {
+        return fmt::format("{}{}x f{}", key.is_depth ? 'd' : 'c', 1u << uint32_t(key.msaa_samples),
+                           key.is_depth ? uint32_t(key.GetDepthFormat())
+                                        : uint32_t(key.GetColorFormat()));
+      };
+      command_processor_.GpuTimingNamed(
+          current_transfers.empty()
+              ? "xfer clear " + describe(dest_rt_key)
+              : "xfer " + describe(dest_rt_key) + " <- " +
+                    describe(current_transfers.front().source->key()));
+    }
 
     // Late barriers in case there was cross-copying that prevented merging of
     // barriers.

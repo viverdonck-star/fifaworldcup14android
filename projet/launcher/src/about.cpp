@@ -47,7 +47,9 @@ const std::vector<Topic>& AboutTopics() {
           "run it."),
         T("Xenia, the Xbox 360 emulator whose research, GPU and kernel code ReXGlue builds on."),
         T("FFmpeg decodes the game's XMA audio, Dear ImGui draws this menu, libmspack and stb read "
-          "the game's compressed files, and SDL handles the screen, sound and controllers.")}},
+          "the game's compressed files, and SDL handles the screen, sound and controllers."),
+        T("libadrenotools (BSD 2-Clause) loads the GPU drivers you choose, and Mesa's Turnip "
+          "(MIT) is the one built in.")}},
       {T("Legal"),
        {T("Not affiliated with or endorsed by Electronic Arts, EA Sports, FIFA or Microsoft. 2014 "
           "FIFA World Cup Brazil and its art, music and names belong to their owners."),

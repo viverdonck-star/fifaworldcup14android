@@ -4,7 +4,8 @@
 // ticks per second / fps`, then starts the next frame. It is called with 200 (no
 // real limit) in play and menus, and 40 in cutscenes: the pre-match intro
 // (line-ups, fans, stadium) and goal celebrations run at exactly 40 FPS.
-// frame_rate_floor raises a lower target to the floor, for example 40 -> 60.
+// frame_rate_floor raises a lower target to the floor, for example 40 -> 60;
+// frame_rate_cap then lowers a higher one, for example 200 -> 40 in play.
 // Changes of the target are logged ("frame limiter target").
 //
 // The spin kept a core at 100% for much of every frame (on the Xbox 360 it cost
@@ -29,6 +30,17 @@
 REXCVAR_DEFINE_INT32(frame_rate_floor, 0, "Game",
                      "Raise the game's own frame-rate target to at least this many FPS (it "
                      "asks for 40 in cutscenes). 0 keeps the game's target.")
+    .range(0, 240);
+
+REXCVAR_DEFINE_INT32(frame_rate_cap, 0, "Game",
+                     "Lower the game's own frame-rate target to at most this many FPS, after "
+                     "frame_rate_floor (40 keeps a handheld cooler). 0 keeps the game's target.")
+    .range(0, 240);
+
+REXCVAR_DEFINE_INT32(frame_rate_cutscene, 0, "Game",
+                     "Frame-rate target for cutscenes (the game's own 40 FPS requests), instead "
+                     "of frame_rate_floor and frame_rate_cap: 30 keeps them even on a handheld "
+                     "that can't hold 60. 0 leaves them to the other two settings.")
     .range(0, 240);
 
 REX_EXTERN(__imp__sub_82366AB0);
@@ -76,6 +88,14 @@ REX_HOOK_RAW(sub_82366AB0) {
   int32_t floor = REXCVAR_GET(frame_rate_floor);
   if (floor > 0 && target > 0 && target < floor) {
     ctx.r4.s64 = floor;
+  }
+  int32_t cap = REXCVAR_GET(frame_rate_cap);
+  if (cap > 0 && ctx.r4.s32 > cap) {
+    ctx.r4.s64 = cap;
+  }
+  int32_t cutscene = REXCVAR_GET(frame_rate_cutscene);
+  if (cutscene > 0 && target > 0 && target < 200) {
+    ctx.r4.s64 = cutscene;
   }
   SleepUntilNearDeadline(base, ctx.r3.u32, ctx.r4.s32);
   __imp__sub_82366AB0(ctx, base);

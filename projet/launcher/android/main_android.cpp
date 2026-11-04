@@ -85,6 +85,15 @@ void CallVoid(const char* method, const std::vector<std::string>& args = {}) {
   env->DeleteLocalRef(activity);
 }
 
+// A driver the player imported (LauncherActivity.nativeDriverImported): its
+// file name, or the reason it was refused (`ok` false).
+struct DriverResult {
+  std::string text;
+  bool ok;
+};
+std::mutex g_driver_mutex;
+std::optional<DriverResult> g_driver;
+
 // What the file picker returned (LauncherActivity.nativeIsoPicked, on Java's
 // thread), taken by the frame loop.
 struct Picked {
@@ -125,6 +134,14 @@ void EnsureGameConfig(const fs::path& data_folder) {
   // Without it the match introduction (its depth-of-field shots) is a
   // white-blue veil on the Odin; measured 02/11/2026.
   require("depth_float24_convert_in_pixel_shader", "true");
+  // ...but not in the 2x scene itself: its early depth test comes back, the
+  // veil stays away (the 1x and 4x passes are what it needs), and the match
+  // introduction went from about 25 to 31 FPS; measured 04/11/2026.
+  require("depth_float24_convert_msaa_mask", "5");
+  // The recommended settings (the launcher's Settings say why): cutscenes and
+  // replays held at an even 30 rather than an uneven 25 to 40.
+  require("frame_rate_cutscene", "30");
+  require("gpu_driver", "\"system\"");
   config.Set("clear_memory_page_state", "false");
   for (const auto& [key, value] : launcher::KeyboardSettings()) {
     if (key == "mnk_mode" || key == "mnk_exact_modifiers") {
@@ -133,10 +150,20 @@ void EnsureGameConfig(const fs::path& data_folder) {
       require(key.c_str(), value.c_str());
     }
   }
-  if (created) {
+  // The recommended frame rate, 40 FPS everywhere (measured 04/11/2026: CPU
+  // and GPU about 8 degrees cooler in a match than at 60), for a new install
+  // and, once, for those who had 0.2's 60 (launcher.toml remembers it).
+  launcher::GameConfig launcher_config(data_folder / "launcher.toml");
+  if (created || launcher_config.Get("recommended_settings", "0") != "3") {
     config.Set("present_interval_cap", "1");
-    config.Set("frame_rate_floor", "60");
+    config.Set("frame_rate_floor", "40");
+    config.Set("frame_rate_cap", "40");
     config.Set("present_late_tolerance", "100");
+    config.Set("frame_rate_cutscene", "30");
+    launcher_config.Set("recommended_settings", "3");
+    launcher_config.Save();
+  }
+  if (created) {
     config.Set("anisotropic_override", "5");
     config.Set("log_file", "\"" + (data_folder / "fifawc14.log").string() + "\"");
     config.Set("log_level", "\"info\"");
@@ -276,6 +303,24 @@ class Controller {
 
 }  // namespace
 
+namespace launcher {
+
+// For the Android settings (settings.cpp): LauncherActivity's actions without
+// arguments (shareLogs, exportSaves, importSaves, importDriver), and the
+// private folder imported drivers are kept in.
+void AndroidCall(const char* method) { CallVoid(method); }
+std::filesystem::path AndroidDriversFolder() { return CallString("driversFolder"); }
+
+}  // namespace launcher
+
+extern "C" JNIEXPORT void JNICALL Java_com_wc14_test_LauncherActivity_nativeDriverImported(
+    JNIEnv* env, jclass, jstring text, jboolean ok) {
+  const char* chars = env->GetStringUTFChars(text, nullptr);
+  std::lock_guard lock(g_driver_mutex);
+  g_driver = DriverResult{chars, bool(ok)};
+  env->ReleaseStringUTFChars(text, chars);
+}
+
 // The file picker's answer (LauncherActivity.onActivityResult).
 extern "C" JNIEXPORT void JNICALL Java_com_wc14_test_LauncherActivity_nativeIsoPicked(
     JNIEnv* env, jclass, jstring path, jstring name, jstring uri) {
@@ -333,6 +378,13 @@ int main(int, char*[]) {
                               : nullptr;
   if (!gpu || !SDL_ClaimWindowForGPUDevice(gpu, window)) {
     launcher::Log("no window or GPU device: %s", SDL_GetError());
+    // Rather than closing without a word: a device without Vulkan 1.1 (or with
+    // an old driver) can run neither the menu nor the game.
+    SDL_ShowSimpleMessageBox(
+        SDL_MESSAGEBOX_ERROR, "World Cup 14",
+        T("This device's graphics can't run the game. It needs 64-bit Android 13 or later "
+          "with Vulkan 1.1; a recent Snapdragon is best. The details are in launcher.log."),
+        nullptr);
     return 1;
   }
   SDL_SetGPUSwapchainParameters(gpu, window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR,
@@ -527,6 +579,13 @@ int main(int, char*[]) {
     }
     if (commands) SDL_SubmitGPUCommandBuffer(commands);
 
+    {
+      std::lock_guard lock(g_driver_mutex);
+      if (g_driver && ui) {
+        ui->DriverImported(g_driver->text, g_driver->ok);
+        g_driver.reset();
+      }
+    }
     if (change_game) {
       change_game = false;
       if (!open_setup()) return 2;

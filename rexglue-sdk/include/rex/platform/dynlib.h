@@ -31,6 +31,13 @@ class DynamicLibrary {
   DynamicLibrary& operator=(DynamicLibrary&& other) noexcept;
 
   bool Load(const std::filesystem::path& path, SymbolResolution mode = SymbolResolution::kLazy);
+  // Takes ownership of a handle opened elsewhere (dlopen or LoadLibrary), such
+  // as a Vulkan loader opened through a custom driver loader.
+  bool Adopt(void* handle) {
+    Close();
+    handle_ = handle;
+    return handle_ != nullptr;
+  }
   void Close();
   explicit operator bool() const { return handle_ != nullptr; }
 

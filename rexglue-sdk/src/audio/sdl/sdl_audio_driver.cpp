@@ -22,6 +22,7 @@
 #include <rex/dbg.h>
 #include <rex/logging.h>
 #include <rex/perf/counter.h>
+#include <rex/platform.h>
 #include <SDL3/SDL.h>
 
 REXCVAR_DEFINE_BOOL(audio_mute, false, "Audio", "Mute audio output");
@@ -75,7 +76,15 @@ bool SDLAudioDriver::Initialize() {
 
   // A 1-channel device gets the stereo fold too, then SDL collapses to mono.
   // Handing it a 6ch stream instead would use SDL's own downmix.
-  if (obtained_spec.channels <= 2) {
+  // On Android always stereo: AAudio accepts 6 channels with no channel mask
+  // as six unassigned channels and plays only the first two, so the centre
+  // (the commentary) and the surrounds were lost.
+#if REX_PLATFORM_ANDROID
+  const bool fold_to_stereo = true;
+#else
+  const bool fold_to_stereo = obtained_spec.channels <= 2;
+#endif
+  if (fold_to_stereo) {
     SDL_DestroyAudioStream(sdl_stream_);
     sdl_stream_ = nullptr;
     desired_spec.channels = 2;

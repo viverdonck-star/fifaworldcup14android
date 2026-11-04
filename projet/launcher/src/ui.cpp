@@ -408,6 +408,7 @@ void Ui::SettingsCommand(Command command) {
           auto [text, ok] = option.outcome();
           if (!text.empty()) ShowMessage(text, ok);
         }
+        if (option.rebuilds) BuildSections();  // `option` is gone after this
       }
       break;
     case Command::kBack:
@@ -505,6 +506,19 @@ void Ui::ShowMessage(std::string text, bool ok) {
   // time to read it (and to take a screenshot to report it).
   message_stays_ = !ok;
 }
+
+#ifdef __ANDROID__
+void Ui::DriverImported(const std::string& text, bool ok) {
+  if (!ok) {
+    ShowMessage(Tf("That driver can't be used: {0}", {text}));
+    return;
+  }
+  config_->Set("gpu_driver", "\"imported:" + text + "\"");
+  config_->Save();
+  BuildSections();
+  ShowMessage(Tf("{0} imported and chosen. If the game doesn't start, choose Device's own again.", {text}), true);
+}
+#endif
 
 // A problem's message fades out on the player's next input, but not one
 // that came with it (the press that showed it).

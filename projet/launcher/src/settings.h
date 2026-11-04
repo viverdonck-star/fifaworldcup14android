@@ -57,6 +57,9 @@ struct Option {
 
   // Kept in the launcher's own launcher.toml (not a game setting).
   bool local = false;
+  // Its run changes the choices (e.g. removes imported drivers): the settings
+  // are made again after it.
+  bool rebuilds = false;
   // When it applies (e.g. Window size only when Windowed); otherwise it's shown
   // greyed out and can't be changed. Unset: always.
   std::function<bool(const GameConfig&)> applies;

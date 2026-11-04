@@ -18,9 +18,10 @@ IDS = {
     "versionCode": 0x0101021B, "versionName": 0x0101021C, "targetSdkVersion": 0x01010270,
     "glEsVersion": 0x01010281, "required": 0x0101028E, "hardwareAccelerated": 0x010102D3,
     "extractNativeLibs": 0x010104EA, "preferMinimalPostProcessing": 0x0101060C,
+    "authorities": 0x01010018, "grantUriPermissions": 0x0101001B,
 }
 BOOLS = {"debuggable", "exported", "extractNativeLibs", "hardwareAccelerated", "required",
-         "preferMinimalPostProcessing"}
+         "preferMinimalPostProcessing", "grantUriPermissions"}
 INTS = {"versionCode", "minSdkVersion", "targetSdkVersion"}
 ENUMS = {
     "launchMode": {"standard": 0, "singleTop": 1, "singleTask": 2, "singleInstance": 3},

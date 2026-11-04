@@ -8,6 +8,7 @@
 #include <wrl/client.h>
 #endif
 
+#include <algorithm>
 #include <fstream>
 #include <regex>
 
@@ -16,6 +17,12 @@
 namespace launcher {
 
 namespace fs = std::filesystem;
+
+#ifdef __ANDROID__
+// main_android.cpp: LauncherActivity's actions, and where imported drivers are.
+void AndroidCall(const char* method);
+fs::path AndroidDriversFolder();
+#endif
 
 // ------------------------------------------------------------------ GameConfig
 
@@ -235,18 +242,6 @@ void CreateDesktopShortcut(const fs::path& data_folder) {
 }
 #endif
 
-#ifdef __ANDROID__
-// There's no file manager to open a folder in: the action says where it is.
-void ShowFolder(Option& option, const fs::path& folder) {
-  option.action = T("Show");
-  option.run = [folder] {
-    std::error_code ec;
-    fs::create_directories(folder, ec);
-  };
-  option.outcome = [folder] { return std::make_pair(folder.string(), true); };
-}
-#endif
-
 Option OnOff(const char* label, std::string key, std::string fallback, std::string help) {
   Option option;
   option.label = T(label);
@@ -335,8 +330,9 @@ std::vector<Section> MakeSections(const fs::path& data_folder, const fs::path& u
     Option rate;
     rate.label = T("Frame rate");
 #ifdef __ANDROID__
-    rate.help = T("The game holds cutscenes at 40 FPS and many menus at 30, as on the console. "
-                  "60 FPS lifts both limits.");
+    rate.help = T("Recommended: 40 FPS, even on a 120 Hz screen, with the device about 8 degrees "
+                  "cooler and the battery lasting longer. 60 FPS is smoother, but the device gets "
+                  "much hotter. As on console holds cutscenes at 40 and many menus at 30.");
     for (int fps : {60}) {
 #else
     rate.help = T("The game holds cutscenes at 40 FPS and many menus at 30, as on the console. "
@@ -347,16 +343,29 @@ std::vector<Section> MakeSections(const fs::path& data_folder, const fs::path& u
       rate.choices.push_back({std::to_string(fps) + " FPS",
                               {{"present_interval_cap", "1"},
                                {"frame_rate_floor", std::to_string(fps)},
+                               {"frame_rate_cap", "0"},
                                {"present_late_tolerance", "100"}},
                               {}});
     }
+#ifdef __ANDROID__
+    // 40 FPS everywhere: three refreshes of a 120 Hz screen a frame, so it
+    // stays even, with a third less work than 60.
+    rate.choices.push_back({"40 FPS",
+                            {{"present_interval_cap", "1"},
+                             {"frame_rate_floor", "40"},
+                             {"frame_rate_cap", "40"},
+                             {"present_late_tolerance", "100"}},
+                            {}});
+#endif
     rate.choices.push_back({T("As on console"),
                             {{"present_interval_cap", "0"},
                              {"frame_rate_floor", "0"},
+                             {"frame_rate_cap", "0"},
                              {"present_late_tolerance", "0"}},
                             {}});
     rate.defaults = {{"present_interval_cap", "0"},
                      {"frame_rate_floor", "0"},
+                     {"frame_rate_cap", "0"},
                      {"present_late_tolerance", "100"}};
     display.options.push_back(rate);
 
@@ -373,8 +382,8 @@ std::vector<Section> MakeSections(const fs::path& data_folder, const fs::path& u
                         "1080p screen. 4K needs a fast graphics card.");
 #ifdef __ANDROID__
     // 4K is out of reach of a handheld's graphics.
-    resolution.help = T("What the game draws at. 720p is the console's own. 1440p is sharper on a "
-                        "1080p screen, but costs a lot.");
+    resolution.help = T("Recommended: 720p, the console's own. 1440p is sharper, but costs a lot "
+                        "of frame rate and makes the device hotter.");
     resolution.choices = {{"720p", {{"resolution_scale", "1"}}, {}},
                           {"1440p", {{"resolution_scale", "2"}}, {}}};
 #else
@@ -392,6 +401,10 @@ std::vector<Section> MakeSections(const fs::path& data_folder, const fs::path& u
     upscaling.choices = {{T("Off"), {{"present_effect", "\"bilinear\""}}, {}},
                          {"FSR", {{"present_effect", "\"fsr\""}}, {}}};
     upscaling.defaults = {{"present_effect", "\"bilinear\""}};
+#ifdef __ANDROID__
+    upscaling.help = T("Recommended: Off. FSR sharpens the picture as it's fitted to the screen, "
+                       "for a small cost in frame rate. It can look a bit artificial.");
+#endif
     graphics.options.push_back(upscaling);
 
     Option picture;
@@ -413,7 +426,85 @@ std::vector<Section> MakeSections(const fs::path& data_folder, const fs::path& u
                          {"8x", {{"anisotropic_override", "4"}}, {}},
                          {"16x", {{"anisotropic_override", "5"}}, {}}};
     filtering.defaults = {{"anisotropic_override", "3"}};
+#ifdef __ANDROID__
+    filtering.help = T("Recommended: 16x. Keeps the pitch markings and the stands sharp at shallow "
+                       "angles; lower settings were no faster on the Odin 3.");
+#endif
     graphics.options.push_back(filtering);
+#ifdef __ANDROID__
+    // The depth conversion is what removes the white veil of the match
+    // introduction on the Adreno (main_android.cpp), but every depth-tested
+    // draw then writes its depth from the pixel shader, which may cost the
+    // heavier cutscenes their frame rate.
+    Option depth;
+    depth.label = T("Exact depth");
+    depth.help = T("Recommended: On. Off brings back the white haze over the shots before "
+                   "kickoff, for no gain in frame rate on the Odin 3.");
+    depth.choices = {{T("On"), {{"depth_float24_convert_in_pixel_shader", "true"}}, {}},
+                     {T("Off"), {{"depth_float24_convert_in_pixel_shader", "false"}}, {}}};
+    depth.defaults = {{"depth_float24_convert_in_pixel_shader", "true"}};
+    graphics.options.push_back(depth);
+
+    // Read by the game's activity (MainActivity.java), which hands the driver
+    // to the engine through libadrenotools.
+    Option driver;
+    driver.label = T("GPU driver");
+    driver.help = T("Recommended: Device's own, the fastest here (Turnip was about a quarter "
+                    "slower on the Odin 3). Another driver may fix a wrong picture, but may also "
+                    "stop the game from starting: then choose Device's own again.");
+    driver.choices = {{T("Device's own"), {{"gpu_driver", "\"system\""}}, {}},
+                      {"Turnip", {{"gpu_driver", "\"builtin:libvulkan_freedreno.so\""}}, {}}};
+    // Those the player imported (LauncherActivity.importDriver), by file name.
+    fs::path drivers = AndroidDriversFolder();
+    std::vector<std::string> imported;
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator(drivers, ec)) {
+      if (entry.path().extension() == ".so") imported.push_back(entry.path().filename().string());
+    }
+    std::sort(imported.begin(), imported.end());
+    for (const std::string& name : imported) {
+      std::string shown = name.substr(0, name.size() - 3);
+      if (shown.size() > 22) shown = shown.substr(0, 21) + "\xE2\x80\xA6";
+      driver.choices.push_back({shown, {{"gpu_driver", "\"imported:" + name + "\""}}, {}});
+    }
+    driver.defaults = {{"gpu_driver", "\"system\""}};
+    graphics.options.push_back(driver);
+
+    Option import;
+    import.label = T("Import a driver");
+    import.action = T("Import");
+    import.help = T("Adds a Vulkan driver for Adreno (a Turnip .zip made for AdrenoTools, or its "
+                    ".so file) to GPU driver, and chooses it. Only drivers from sources you "
+                    "trust: a driver runs with the game's rights.");
+    import.run = [] { AndroidCall("importDriver"); };
+    graphics.options.push_back(import);
+
+    if (!imported.empty()) {
+      Option remove;
+      remove.label = T("Imported drivers");
+      remove.action = T("Remove");
+      remove.confirm = true;
+      remove.rebuilds = true;
+      remove.info = [count = imported.size()] { return std::to_string(count); };
+      remove.help = T("Removes the drivers you imported. If one of them was chosen, the game "
+                      "uses the device's own again.");
+      remove.run = [drivers] {
+        std::error_code ec;
+        fs::remove_all(drivers, ec);
+      };
+      graphics.options.push_back(remove);
+    }
+
+    Option cutscenes;
+    cutscenes.label = T("Cutscenes");
+    cutscenes.help = T("Recommended: 30 FPS. The match introduction and replays can't hold 60 "
+                       "on a handheld: 30 keeps them even and the device cooler. As the frame "
+                       "rate is smoother at times, but uneven.");
+    cutscenes.choices = {{T("As the frame rate"), {{"frame_rate_cutscene", "0"}}, {}},
+                         {"30 FPS", {{"frame_rate_cutscene", "30"}}, {}}};
+    cutscenes.defaults = {{"frame_rate_cutscene", "0"}};
+    graphics.options.push_back(cutscenes);
+#endif
   }
   sections.push_back(graphics);
 
@@ -457,7 +548,22 @@ std::vector<Section> MakeSections(const fs::path& data_folder, const fs::path& u
     saves.label = T("Saves");
     saves.help = T("Your profile, settings and tournament saves.");
 #ifdef __ANDROID__
-    ShowFolder(saves, user_folder);
+    // Android doesn't let the player open the app's folder: the saves go in a
+    // zip, where they choose, and come back from one.
+    saves.label = T("Export saves");
+    saves.action = T("Export");
+    saves.help = T("Your profile, settings and tournament saves, in a zip you can keep (in "
+                   "Downloads, a cloud...) or copy to another device.");
+    saves.run = [] { AndroidCall("exportSaves"); };
+    data.options.push_back(saves);
+
+    saves = Option{};
+    saves.label = T("Import saves");
+    saves.action = T("Import");
+    saves.confirm = true;
+    saves.help = T("Replaces your saves with those of an exported zip. The current ones are kept "
+                   "aside in a saves-before-import folder, in case.");
+    saves.run = [] { AndroidCall("importSaves"); };
 #else
     saves.action = T("Open folder");
     saves.run = [user_folder] { OpenFolder(user_folder); };
@@ -482,7 +588,10 @@ std::vector<Section> MakeSections(const fs::path& data_folder, const fs::path& u
     logs.label = T("Logs");
     logs.help = T("The game's log (fifawc14.log). Attach it when you report a problem.");
 #ifdef __ANDROID__
-    ShowFolder(logs, data_folder);
+    logs.help = T("The game's and this menu's logs, with your settings, in a zip to send (by "
+                  "message, mail...) when you report a problem.");
+    logs.action = T("Share");
+    logs.run = [] { AndroidCall("shareLogs"); };
 #else
     logs.action = T("Open folder");
     logs.run = [data_folder] { OpenFolder(data_folder); };

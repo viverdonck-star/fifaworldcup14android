@@ -140,7 +140,6 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
   bool depth_float24_convert_in_pixel_shader() const {
     return depth_float24_convert_in_pixel_shader_;
   }
-
   bool msaa_2x_attachments_supported() const { return msaa_2x_attachments_supported_; }
   bool msaa_2x_no_attachments_supported() const { return msaa_2x_no_attachments_supported_; }
   bool IsMsaa2xSupported(bool subpass_has_attachments) const {

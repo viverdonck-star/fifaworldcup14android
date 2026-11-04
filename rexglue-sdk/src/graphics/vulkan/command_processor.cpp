@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <functional>
 #include <iterator>
 #include <mutex>
 #include <string>
@@ -74,6 +75,15 @@ REXCVAR_DEFINE_BOOL(vulkan_dynamic_rendering, true, "GPU/Vulkan",
                     "Use VK_KHR_dynamic_rendering for Vulkan GPU emulation when supported by the "
                     "device (falls back to render passes otherwise)")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+
+REXCVAR_DEFINE_STRING(gpu_skip_draws, "", "GPU/Vulkan",
+                      "Performance testing only: skip families of draws (quads, rects, nocolor, "
+                      "fullscreen), the picture is then wrong")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+
+REXCVAR_DEFINE_BOOL(gpu_timing, false, "GPU/Vulkan",
+                    "Log the GPU time a frame spends on draws, render target transfers and "
+                    "resolves, every 10 s");
 
 namespace rex::graphics::vulkan {
 
@@ -2287,11 +2297,225 @@ namespace {
 // after the trigger file appears, in the same format as the D3D12 F9 capture.
 bool g_capture_frame = false;
 uint32_t g_capture_draw_index = 0;
+
+// GPU time by kind of work (gpu_timing): a timestamp at the start of every
+// submission, at every change of kind and at its end; the time between two
+// timestamps goes to the kind that started it. Read back once the submission's
+// fence has signalled, summed, and logged every 10 s as milliseconds a frame.
+constexpr uint32_t kTimingSlots = 8;
+constexpr uint32_t kTimingQueries = 2048;
+using GpuWork = VulkanCommandProcessor::GpuWork;
+// Kinds: the GpuWork values, then draw render passes by their attachments
+// (TimingPass), so the log can say which passes cost the most.
+constexpr uint32_t kTimingKinds = 64;
+struct TimingSlot {
+  uint64_t submission = 0;  // 0: free
+  uint32_t count = 0;
+  uint8_t work[kTimingQueries];
+};
+struct GpuTiming {
+  VkQueryPool pool = VK_NULL_HANDLE;
+  bool tried = false;
+  double ns_per_tick = 1.0;
+  TimingSlot slots[kTimingSlots];
+  int active = -1;  // slot of the open submission, or -1
+  GpuWork current = GpuWork::kDraws;
+  GpuWork stack[16];
+  uint32_t depth = 0;
+  double ns[kTimingKinds] = {};
+  std::vector<std::string> pass_names;  // kinds from GpuWork::kCount on
+  uint64_t frames = 0;
+  std::chrono::steady_clock::time_point last_log = std::chrono::steady_clock::now();
+};
+GpuTiming g_timing;
+
+void TimingWrite(VulkanCommandProcessor& processor, uint8_t work) {
+  if (g_timing.active < 0) {
+    return;
+  }
+  TimingSlot& slot = g_timing.slots[g_timing.active];
+  if (slot.count >= kTimingQueries - 1) {
+    return;  // the last one is kept for the end of the submission
+  }
+  processor.deferred_command_buffer().CmdVkWriteTimestamp(
+      VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, g_timing.pool,
+      uint32_t(g_timing.active) * kTimingQueries + slot.count);
+  slot.work[slot.count++] = work;
+}
+
+void TimingCollect(VulkanCommandProcessor& processor) {
+  if (g_timing.pool == VK_NULL_HANDLE) {
+    return;
+  }
+  const ui::vulkan::VulkanDevice* vulkan_device = processor.GetVulkanDevice();
+  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+  uint64_t completed = processor.GetCompletedSubmission();
+  for (uint32_t i = 0; i < kTimingSlots; ++i) {
+    TimingSlot& slot = g_timing.slots[i];
+    if (!slot.submission || slot.submission > completed || int(i) == g_timing.active) {
+      continue;
+    }
+    uint64_t ticks[kTimingQueries];
+    if (slot.count >= 2 &&
+        dfn.vkGetQueryPoolResults(vulkan_device->device(), g_timing.pool, i * kTimingQueries,
+                                  slot.count, sizeof(uint64_t) * slot.count, ticks,
+                                  sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
+      for (uint32_t q = 0; q + 1 < slot.count; ++q) {
+        if (ticks[q + 1] >= ticks[q]) {
+          g_timing.ns[slot.work[q]] += double(ticks[q + 1] - ticks[q]) * g_timing.ns_per_tick;
+        }
+      }
+    }
+    slot.submission = 0;
+  }
+}
+
+void TimingBeginSubmission(VulkanCommandProcessor& processor) {
+  g_timing.active = -1;
+  g_timing.depth = 0;
+  g_timing.current = GpuWork::kDraws;
+  if (!REXCVAR_GET(gpu_timing)) {
+    return;
+  }
+  const ui::vulkan::VulkanDevice* vulkan_device = processor.GetVulkanDevice();
+  if (!g_timing.tried) {
+    g_timing.tried = true;
+    VkPhysicalDeviceProperties properties;
+    vulkan_device->vulkan_instance()->functions().vkGetPhysicalDeviceProperties(
+        vulkan_device->physical_device(), &properties);
+    g_timing.ns_per_tick = properties.limits.timestampPeriod;
+    VkQueryPoolCreateInfo pool_info = {};
+    pool_info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+    pool_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
+    pool_info.queryCount = kTimingSlots * kTimingQueries;
+    if (vulkan_device->functions().vkCreateQueryPool(vulkan_device->device(), &pool_info, nullptr,
+                                                     &g_timing.pool) != VK_SUCCESS) {
+      g_timing.pool = VK_NULL_HANDLE;
+    }
+    REXGPU_INFO("gpu timing: {}, {} ns a tick",
+                g_timing.pool != VK_NULL_HANDLE ? "on" : "no timestamp query pool",
+                g_timing.ns_per_tick);
+  }
+  if (g_timing.pool == VK_NULL_HANDLE) {
+    return;
+  }
+  TimingCollect(processor);
+  uint64_t submission = processor.GetCurrentSubmission();
+  uint32_t index = uint32_t(submission % kTimingSlots);
+  if (g_timing.slots[index].submission) {
+    return;  // still in flight: this submission isn't timed
+  }
+  g_timing.slots[index].submission = submission;
+  g_timing.slots[index].count = 0;
+  g_timing.active = int(index);
+  processor.deferred_command_buffer().CmdVkResetQueryPool(g_timing.pool, index * kTimingQueries,
+                                                          kTimingQueries);
+  TimingWrite(processor, uint8_t(GpuWork::kDraws));
+}
+
+// The work from here on counts under `name` (a kind registered on first use).
+void TimingNamed(VulkanCommandProcessor& processor, const std::string& name) {
+  if (g_timing.active < 0) {
+    return;
+  }
+  auto found = std::find(g_timing.pass_names.begin(), g_timing.pass_names.end(), name);
+  size_t index = size_t(found - g_timing.pass_names.begin());
+  if (found == g_timing.pass_names.end()) {
+    if (size_t(GpuWork::kCount) + g_timing.pass_names.size() >= kTimingKinds) {
+      return;
+    }
+    g_timing.pass_names.push_back(name);
+  }
+  TimingWrite(processor, uint8_t(size_t(GpuWork::kCount) + index));
+}
+
+// A draw render pass begins: its time goes to a kind named after its
+// attachments, unless a transfer or resolve is being timed.
+void TimingPass(VulkanCommandProcessor& processor, const std::string& name) {
+  if (!g_timing.depth) {
+    TimingNamed(processor, name);
+  }
+}
+
+void TimingEndSubmission(VulkanCommandProcessor& processor) {
+  if (g_timing.active < 0) {
+    return;
+  }
+  TimingSlot& slot = g_timing.slots[g_timing.active];
+  processor.deferred_command_buffer().CmdVkWriteTimestamp(
+      VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, g_timing.pool,
+      uint32_t(g_timing.active) * kTimingQueries + slot.count);
+  slot.work[slot.count++] = uint8_t(GpuWork::kDraws);
+  g_timing.active = -1;
+}
+
+void TimingFrame() {
+  if (!REXCVAR_GET(gpu_timing) || g_timing.pool == VK_NULL_HANDLE) {
+    return;
+  }
+  ++g_timing.frames;
+  auto now = std::chrono::steady_clock::now();
+  if (now - g_timing.last_log < std::chrono::seconds(10)) {
+    return;
+  }
+  double per_frame = 1e-6 / double(g_timing.frames);
+  double draws = g_timing.ns[size_t(GpuWork::kDraws)] * per_frame;
+  double transfers = g_timing.ns[size_t(GpuWork::kTransfers)] * per_frame;
+  double resolves = g_timing.ns[size_t(GpuWork::kResolves)] * per_frame;
+  // Draw passes, the most costly first.
+  std::vector<std::pair<double, size_t>> passes;
+  for (size_t i = 0; i < g_timing.pass_names.size(); ++i) {
+    double ms = g_timing.ns[size_t(GpuWork::kCount) + i] * per_frame;
+    // Named kinds of transfers (TimingNamed in render target transfers).
+    (g_timing.pass_names[i].rfind("xfer", 0) == 0 ? transfers : draws) += ms;
+    if (ms >= 0.05) {
+      passes.emplace_back(ms, i);
+    }
+  }
+  std::sort(passes.begin(), passes.end(), std::greater<>());
+  std::string pass_text;
+  for (size_t i = 0; i < passes.size() && i < 12; ++i) {
+    pass_text += fmt::format("{}{} {:.2f}", i ? ", " : "", g_timing.pass_names[passes[i].second],
+                             passes[i].first);
+  }
+  REXGPU_INFO(
+      "gpu time a frame: draws {:.2f} ms, transfers {:.2f} ms, resolves {:.2f} ms, total {:.2f} "
+      "ms ({} frames); outside passes {:.2f}; passes: {}",
+      draws, transfers, resolves, draws + transfers + resolves, g_timing.frames,
+      g_timing.ns[size_t(GpuWork::kDraws)] * per_frame, pass_text);
+  g_timing.frames = 0;
+  for (double& ns : g_timing.ns) {
+    ns = 0.0;
+  }
+  g_timing.last_log = now;
+}
 }  // namespace
+
+void VulkanCommandProcessor::GpuTimingPush(GpuWork work) {
+  if (g_timing.depth < std::size(g_timing.stack)) {
+    g_timing.stack[g_timing.depth] = g_timing.current;
+  }
+  ++g_timing.depth;
+  g_timing.current = work;
+  TimingWrite(*this, uint8_t(work));
+}
+
+void VulkanCommandProcessor::GpuTimingPop() {
+  if (!g_timing.depth) {
+    return;
+  }
+  --g_timing.depth;
+  g_timing.current =
+      g_timing.depth < std::size(g_timing.stack) ? g_timing.stack[g_timing.depth] : GpuWork::kDraws;
+  TimingWrite(*this, uint8_t(g_timing.current));
+}
+
+void VulkanCommandProcessor::GpuTimingNamed(const std::string& name) { TimingNamed(*this, name); }
 
 void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontbuffer_width,
                                        uint32_t frontbuffer_height) {
   SCOPE_profile_cpu_f("gpu");
+  TimingFrame();
   {
     const std::string& trigger = REXCVAR_GET(vulkan_capture_trigger);
     std::error_code ec;
@@ -3149,6 +3373,18 @@ void VulkanCommandProcessor::SubmitBarriersAndEnterRenderTargetCacheRenderPass(
   current_render_pass_ = use_dynamic_rendering ? VK_NULL_HANDLE : render_pass;
   current_framebuffer_ = framebuffer;
 
+  if (REXCVAR_GET(gpu_timing)) {
+    // "1280x720 4x d c1": size, samples, depth used, color render targets used.
+    VulkanRenderTargetCache::RenderPassKey key = render_target_cache_->last_update_render_pass_key();
+    TimingPass(*this, fmt::format("{}x{} {}x{}{}", framebuffer->host_extent.width,
+                                  framebuffer->host_extent.height,
+                                  1u << uint32_t(key.msaa_samples),
+                                  (key.depth_and_color_used & 1) ? " d" : "",
+                                  (key.depth_and_color_used >> 1)
+                                      ? fmt::format(" c{:X}", key.depth_and_color_used >> 1)
+                                      : std::string()));
+  }
+
   if (use_dynamic_rendering) {
     VkRenderingAttachmentInfo color_attachments[xenos::kMaxColorRenderTargets];
     VkRenderingAttachmentInfo depth_attachment;
@@ -3711,6 +3947,24 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t 
     draw_util::AddMemExportRanges(regs, *pixel_shader, memexport_ranges_);
   }
   reg::RB_DEPTHCONTROL normalized_depth_control = draw_util::GetNormalizedDepthControl(regs);
+
+  // gpu_skip_draws (performance testing only, the picture is wrong): drops a
+  // family of draws to see what it costs.
+  {
+    static const std::string skip = REXCVAR_GET(gpu_skip_draws);
+    if (!skip.empty()) {
+      bool no_color = regs.Get<reg::RB_COLOR_MASK>().value == 0;
+      if ((prim_type == xenos::PrimitiveType::kQuadList &&
+           skip.find("quads") != std::string::npos) ||
+          (prim_type == xenos::PrimitiveType::kRectangleList &&
+           skip.find("rects") != std::string::npos) ||
+          (no_color && skip.find("nocolor") != std::string::npos) ||
+          (!no_color && prim_type != xenos::PrimitiveType::kRectangleList &&
+           index_count <= 4 && skip.find("fullscreen") != std::string::npos)) {
+        return true;
+      }
+    }
+  }
 
   uint32_t ps_param_gen_pos = UINT32_MAX;
   uint32_t interpolator_mask =
@@ -5386,6 +5640,7 @@ bool VulkanCommandProcessor::BeginSubmission(bool is_guest_command) {
     // the end of the submission (when async pipeline object creation requests
     // are fulfilled).
     deferred_command_buffer_.Reset();
+    TimingBeginSubmission(*this);
 
     // Reset cached state of the command buffer.
     dynamic_viewport_update_needed_ = true;
@@ -5619,6 +5874,7 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
     }
 
     SubmitBarriers(true);
+    TimingEndSubmission(*this);
 
     assert_false(command_buffers_writable_.empty());
     CommandBuffer command_buffer = command_buffers_writable_.back();

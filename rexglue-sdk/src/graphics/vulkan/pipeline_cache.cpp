@@ -59,6 +59,13 @@ REXCVAR_DEFINE_BOOL(vulkan_tessellation_wireframe, false, "GPU/Vulkan",
                     "Render tessellation as wireframe")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
+REXCVAR_DEFINE_INT32(depth_float24_convert_msaa_mask, 7, "GPU/Vulkan",
+                     "With depth_float24_convert_in_pixel_shader, the render target sample counts "
+                     "whose draws convert depth (bit 0: 1x, bit 1: 2x, bit 2: 4x); the others keep "
+                     "early depth testing")
+    .range(0, 7)
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+
 namespace rex::graphics::vulkan {
 
 namespace {
@@ -991,7 +998,10 @@ SpirvShaderTranslator::Modification VulkanPipelineCache::GetCurrentPixelShaderMo
     using DepthStencilMode = SpirvShaderTranslator::Modification::DepthStencilMode;
     if (render_target_cache_.depth_float24_convert_in_pixel_shader() &&
         normalized_depth_control.z_enable &&
-        regs.Get<reg::RB_DEPTH_INFO>().depth_format == xenos::DepthRenderTargetFormat::kD24FS8) {
+        regs.Get<reg::RB_DEPTH_INFO>().depth_format == xenos::DepthRenderTargetFormat::kD24FS8 &&
+        (REXCVAR_GET(depth_float24_convert_msaa_mask) >>
+         uint32_t(regs.Get<reg::RB_SURFACE_INFO>().msaa_samples)) &
+            1) {
       // For host D32 depth, emulate guest D24FS8 float24 depth behavior.
       modification.pixel.depth_stencil_mode = render_target_cache_.depth_float24_round()
                                                   ? DepthStencilMode::kFloat24Rounding
@@ -3143,6 +3153,9 @@ bool VulkanPipelineCache::EnsurePipelineCreated(const PipelineCreationArguments&
     if (edram_fragment_shader_interlock) {
       shader_stage_fragment.module = depth_only_fragment_shader_;
     } else if (render_target_cache_.depth_float24_convert_in_pixel_shader() &&
+               ((REXCVAR_GET(depth_float24_convert_msaa_mask) >>
+                 uint32_t(description.render_pass_key.msaa_samples)) &
+                1) &&
                (description.render_pass_key.depth_and_color_used & 1) &&
                (description.depth_compare_op != xenos::CompareFunction::kAlways ||
                 description.depth_write_enable) &&

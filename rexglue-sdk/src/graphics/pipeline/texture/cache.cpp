@@ -154,12 +154,13 @@ const TextureCache::LoadShaderInfo TextureCache::load_shader_info_[kLoadShaderCo
     {4, 4, 4, 4},
     // kGBGR8ToGRGB8
     {4, 4, 4, 3},
-    // kGBGR8ToRGB8
-    {4, 4, 8, 3},
+    // kGBGR8ToRGB8 (decompressed to RGBA8: 4 bytes a host block, not 8, or the
+    // rows are twice as far apart - green, striped 4:2:2 video on Vulkan)
+    {4, 4, 4, 3},
     // kBGRG8ToRGBG8
     {4, 4, 4, 3},
-    // kBGRG8ToRGB8
-    {4, 4, 8, 3},
+    // kBGRG8ToRGB8 (as kGBGR8ToRGB8)
+    {4, 4, 4, 3},
     // kR10G11B11ToRGBA16
     {4, 4, 8, 3},
     // kR10G11B11ToRGBA16SNorm

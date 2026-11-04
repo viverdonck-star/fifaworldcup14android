@@ -463,6 +463,36 @@ const Entry kEntries[] = {
     {"Choose the game's .iso, or its folder (the one with default.xex).",
      "Elige el .iso del juego o su carpeta (la que tiene default.xex).",
      "Escolha o .iso do jogo ou a pasta dele (a que tem o default.xex)."},
+    {"Other edition", "Otra edición", "Outra edição"},
+    {"GPU driver", "Controlador gráfico", "Driver gráfico"},
+    {"The device's own driver is the fastest in this game. Turnip (Mesa) is there to try if the "
+     "picture looks wrong.",
+     "El controlador del dispositivo es el más rápido en este juego. Turnip (Mesa) está para "
+     "probar si la imagen se ve mal.",
+     "O driver do aparelho é o mais rápido neste jogo. Turnip (Mesa) está aí para testar se a "
+     "imagem parecer errada."},
+    {"Device's own", "El del dispositivo", "O do aparelho"},
+    {"Cutscenes", "Cinemáticas", "Cinemáticas"},
+    {"The match introduction and replays can't hold 60 FPS on a handheld. 30 FPS keeps them even "
+     "and the device a little cooler.",
+     "La presentación del partido y las repeticiones no mantienen 60 FPS en una portátil. 30 FPS "
+     "las deja estables y el dispositivo un poco más fresco.",
+     "A apresentação da partida e os replays não seguram 60 FPS num portátil. 30 FPS os deixa "
+     "estáveis e o aparelho um pouco mais fresco."},
+    {"As the frame rate", "Como la tasa de fotogramas", "Como a taxa de quadros"},
+    {"The game holds cutscenes at 40 FPS and many menus at 30, as on the console. 60 FPS lifts "
+     "both limits. 40 FPS everywhere keeps the device cooler.",
+     "El juego mantiene las cinemáticas a 40 FPS y muchos menús a 30, como en la consola. 60 FPS "
+     "quita ambos límites. 40 FPS en todo mantiene el dispositivo más fresco.",
+     "O jogo mantém as cinemáticas a 40 FPS e muitos menus a 30, como no console. 60 FPS tira os "
+     "dois limites. 40 FPS em tudo mantém o aparelho mais fresco."},
+    {"Exact depth", "Profundidad exacta", "Profundidade exata"},
+    {"On removes the white haze over the shots before kickoff. Off can make cutscenes and set "
+     "pieces smoother, with the haze back.",
+     "Activado quita la bruma blanca de las tomas antes del saque inicial. Desactivado puede hacer "
+     "más fluidas las cinemáticas y las jugadas a balón parado, con la bruma de vuelta.",
+     "Ligado tira a névoa branca das cenas antes do pontapé inicial. Desligado pode deixar as "
+     "cinemáticas e as bolas paradas mais fluidas, com a névoa de volta."},
     {"This file can't be read from there", "Este archivo no se puede leer desde ahí",
      "Este arquivo não pode ser lido daí"},
     {"Another app hands it over as a stream (a cloud or an archive). Copy the .iso to the "
@@ -512,6 +542,123 @@ const Entry kEntries[] = {
      "A pasta do jogo (com o default.xex)"},
     {"Disc images (*.iso)", "Imágenes de disco (*.iso)", "Imagens de disco (*.iso)"},
     {"All files", "Todos los archivos", "Todos os arquivos"},
+    // Android: recommended settings and their risks, data, drivers (04/11/2026).
+    {"Recommended: 40 FPS, even on a 120 Hz screen, with the device about 8 degrees cooler and "
+     "the battery lasting longer. 60 FPS is smoother, but the device gets much hotter. As on "
+     "console holds cutscenes at 40 and many menus at 30.",
+     "Recomendado: 40 FPS, estable en una pantalla de 120 Hz, con el dispositivo unos 8 grados "
+     "más fresco y la batería durando más. 60 FPS es más fluido, pero el dispositivo se calienta "
+     "mucho más. Como en consola deja las cinemáticas a 40 y muchos menús a 30.",
+     "Recomendado: 40 FPS, estável numa tela de 120 Hz, com o aparelho uns 8 graus mais fresco e "
+     "a bateria durando mais. 60 FPS é mais fluido, mas o aparelho esquenta muito mais. Como no "
+     "console deixa as cenas a 40 e muitos menus a 30."},
+    {"Recommended: 720p, the console's own. 1440p is sharper, but costs a lot of frame rate and "
+     "makes the device hotter.",
+     "Recomendado: 720p, la de la consola. 1440p es más nítido, pero cuesta muchos FPS y calienta "
+     "más el dispositivo.",
+     "Recomendado: 720p, a do console. 1440p é mais nítido, mas custa muitos FPS e esquenta mais "
+     "o aparelho."},
+    {"Recommended: Off. FSR sharpens the picture as it's fitted to the screen, for a small cost "
+     "in frame rate. It can look a bit artificial.",
+     "Recomendado: Desactivado. FSR hace más nítida la imagen al ajustarla a la pantalla, a "
+     "cambio de unos pocos FPS. Puede verse un poco artificial.",
+     "Recomendado: Desligado. FSR deixa a imagem mais nítida ao ajustá-la à tela, ao custo de "
+     "alguns FPS. Pode parecer um pouco artificial."},
+    {"Recommended: 16x. Keeps the pitch markings and the stands sharp at shallow angles; lower "
+     "settings were no faster on the Odin 3.",
+     "Recomendado: 16x. Mantiene nítidas las líneas del campo y las gradas en ángulos rasantes; "
+     "los valores más bajos no fueron más rápidos en la Odin 3.",
+     "Recomendado: 16x. Mantém nítidas as linhas do campo e as arquibancadas em ângulos "
+     "rasantes; valores menores não foram mais rápidos no Odin 3."},
+    {"Recommended: On. Off brings back the white haze over the shots before kickoff, for no gain "
+     "in frame rate on the Odin 3.",
+     "Recomendado: Activado. Desactivado devuelve la bruma blanca de las tomas antes del saque "
+     "inicial, sin ganar FPS en la Odin 3.",
+     "Recomendado: Ligado. Desligado traz de volta a névoa branca nas cenas antes do pontapé "
+     "inicial, sem ganho de FPS no Odin 3."},
+    {"Recommended: Device's own, the fastest here (Turnip was about a quarter slower on the Odin "
+     "3). Another driver may fix a wrong picture, but may also stop the game from starting: then "
+     "choose Device's own again.",
+     "Recomendado: El del dispositivo, el más rápido aquí (Turnip fue una cuarta parte más lento en "
+     "la Odin 3). Otro controlador puede arreglar una imagen incorrecta, pero también impedir que "
+     "el juego arranque: entonces vuelve a elegir El del dispositivo.",
+     "Recomendado: O do aparelho, o mais rápido aqui (Turnip foi cerca de um quarto mais lento no "
+     "Odin 3). Outro driver pode corrigir uma imagem errada, mas também impedir o jogo de "
+     "iniciar: então escolha O do aparelho de novo."},
+    {"Recommended: 30 FPS. The match introduction and replays can't hold 60 on a handheld: 30 "
+     "keeps them even and the device cooler. As the frame rate is smoother at times, but uneven.",
+     "Recomendado: 30 FPS. La presentación del partido y las repeticiones no mantienen 60 en una "
+     "portátil: 30 las deja estables y el dispositivo más fresco. Como la tasa de fotogramas es "
+     "más fluido a ratos, pero irregular.",
+     "Recomendado: 30 FPS. A apresentação da partida e os replays não seguram 60 num portátil: 30 "
+     "os deixa estáveis e o aparelho mais fresco. Como a taxa de quadros é mais fluido às vezes, "
+     "mas irregular."},
+    {"libadrenotools (BSD 2-Clause) loads the GPU drivers you choose, and Mesa's Turnip (MIT) is "
+     "the one built in.",
+     "libadrenotools (BSD 2-Clause) carga los controladores gráficos que eliges, y Turnip de Mesa "
+     "(MIT) es el incluido.",
+     "O libadrenotools (BSD 2-Clause) carrega os drivers gráficos que você escolhe, e o Turnip do "
+     "Mesa (MIT) é o incluído."},
+    {"FFmpeg decodes the game's XMA audio, Dear ImGui draws this menu, libmspack and stb read the "
+     "game's compressed files, and SDL handles the screen, sound and controllers.",
+     "FFmpeg decodifica el audio XMA del juego, Dear ImGui dibuja este menú, libmspack y stb leen "
+     "los archivos comprimidos del juego, y SDL maneja la pantalla, el sonido y los controles.",
+     "O FFmpeg decodifica o áudio XMA do jogo, o Dear ImGui desenha este menu, o libmspack e o "
+     "stb leem os arquivos compactados do jogo, e o SDL cuida da tela, do som e dos controles."},
+    {"Import a driver", "Importar un controlador", "Importar um driver"},
+    {"Import", "Importar", "Importar"},
+    {"Export", "Exportar", "Exportar"},
+    {"Share", "Compartir", "Compartilhar"},
+    {"Remove", "Quitar", "Remover"},
+    {"Adds a Vulkan driver for Adreno (a Turnip .zip made for AdrenoTools, or its .so file) to "
+     "GPU driver, and chooses it. Only drivers from sources you trust: a driver runs with the "
+     "game's rights.",
+     "Añade un controlador Vulkan para Adreno (un .zip de Turnip hecho para AdrenoTools, o su "
+     "archivo .so) a Controlador gráfico y lo elige. Solo controladores de fuentes de confianza: "
+     "un controlador funciona con los permisos del juego.",
+     "Adiciona um driver Vulkan para Adreno (um .zip do Turnip feito para o AdrenoTools, ou o "
+     "arquivo .so) a Driver gráfico e o escolhe. Só drivers de fontes confiáveis: um driver roda "
+     "com as permissões do jogo."},
+    {"Imported drivers", "Controladores importados", "Drivers importados"},
+    {"Removes the drivers you imported. If one of them was chosen, the game uses the device's own "
+     "again.",
+     "Quita los controladores que importaste. Si uno estaba elegido, el juego vuelve a usar el "
+     "del dispositivo.",
+     "Remove os drivers que você importou. Se um deles estava escolhido, o jogo volta a usar o "
+     "do aparelho."},
+    {"That driver can't be used: {0}", "Ese controlador no se puede usar: {0}",
+     "Esse driver não pode ser usado: {0}"},
+    {"{0} imported and chosen. If the game doesn't start, choose Device's own again.",
+     "{0} importado y elegido. Si el juego no arranca, vuelve a elegir El del dispositivo.",
+     "{0} importado e escolhido. Se o jogo não iniciar, escolha O do aparelho de novo."},
+    {"Export saves", "Exportar partidas guardadas", "Exportar salvamentos"},
+    {"Import saves", "Importar partidas guardadas", "Importar salvamentos"},
+    {"Your profile, settings and tournament saves, in a zip you can keep (in Downloads, a "
+     "cloud...) or copy to another device.",
+     "Tu perfil, tus ajustes y tus torneos guardados, en un zip que puedes conservar (en "
+     "Descargas, en la nube...) o copiar a otro dispositivo.",
+     "Seu perfil, configurações e torneios salvos, num zip que você pode guardar (em Downloads, "
+     "numa nuvem...) ou copiar para outro aparelho."},
+    {"Replaces your saves with those of an exported zip. The current ones are kept aside in a "
+     "saves-before-import folder, in case.",
+     "Sustituye tus partidas guardadas por las de un zip exportado. Las actuales se apartan en "
+     "una carpeta saves-before-import, por si acaso.",
+     "Substitui seus salvamentos pelos de um zip exportado. Os atuais ficam guardados numa pasta "
+     "saves-before-import, por precaução."},
+    {"The game's and this menu's logs, with your settings, in a zip to send (by message, "
+     "mail...) when you report a problem.",
+     "Los registros del juego y de este menú, con tus ajustes, en un zip para enviar (por "
+     "mensaje, correo...) cuando informes de un problema.",
+     "Os logs do jogo e deste menu, com suas configurações, num zip para enviar (por mensagem, "
+     "e-mail...) quando relatar um problema."},
+    {"This device's graphics can't run the game. It needs 64-bit Android 13 or later with Vulkan "
+     "1.1; a recent Snapdragon is best. The details are in launcher.log.",
+     "Los gráficos de este dispositivo no pueden ejecutar el juego. Necesita Android 13 o "
+     "posterior de 64 bits con Vulkan 1.1; lo mejor es un Snapdragon reciente. Los detalles están "
+     "en launcher.log.",
+     "Os gráficos deste aparelho não conseguem rodar o jogo. Ele precisa de Android 13 ou mais "
+     "recente de 64 bits com Vulkan 1.1; o ideal é um Snapdragon recente. Os detalhes estão no "
+     "launcher.log."},
 };
 
 const std::vector<LanguageInfo> kLanguages = {

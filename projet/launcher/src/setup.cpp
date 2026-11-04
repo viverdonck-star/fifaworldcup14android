@@ -357,8 +357,12 @@ void Setup::Frame(float width, float height, float dt) {
   // The game that was found, in plain words: which disc, and the file.
   std::string found_line;
   if (found) {
+    // Any disc whose code checks out plays (the European and US code is the
+    // same); the region and version say which one it is.
     if (check_.region == "Europe") found_line = T("European disc");
-    if (check_.region == "USA") found_line = T("US disc");
+    else if (check_.region == "USA") found_line = T("US disc");
+    else found_line = T("Other edition");
+    if (!check_.version.empty()) found_line += " " + check_.version;
     std::string name = !name_.empty() ? name_
                                       : Utf8(location_.filename().empty() ? location_
                                                                           : location_.filename());

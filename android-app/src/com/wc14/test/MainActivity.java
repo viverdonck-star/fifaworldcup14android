@@ -33,6 +33,7 @@ public class MainActivity extends SDLActivity {
         try {
             Os.setenv("REX_APP_DIR", folder.getAbsolutePath(), true);
             Os.setenv("REX_GPU_BACKEND", "vulkan", true);
+            SetGpuDriver(new File(folder, "fifawc14.toml"));
         } catch (ErrnoException e) {
             throw new RuntimeException(e);
         }
@@ -56,6 +57,38 @@ public class MainActivity extends SDLActivity {
     @Override
     protected String[] getLibraries() {
         return new String[] {"c++_shared", "rexruntime", "fifawc14"};
+    }
+
+    // The GPU driver the player chose in the launcher (gpu_driver in
+    // fifawc14.toml): "builtin:<file>" is a driver in the APK (Turnip),
+    // "imported:<file>" one they added, kept in the app's private storage
+    // (drivers can't be loaded from shared storage). Missing or "system":
+    // Qualcomm's own. The engine loads it through libadrenotools
+    // (REX_VULKAN_DRIVER_*).
+    private void SetGpuDriver(File toml) throws ErrnoException {
+        String line = "";
+        try {
+            if (!toml.exists()) return;
+            for (String setting : Files.readAllLines(toml.toPath(), StandardCharsets.UTF_8)) {
+                String[] parts = setting.split("=", 2);
+                if (parts.length == 2 && parts[0].trim().equals("gpu_driver")) {
+                    line = parts[1].trim().replace("\"", "");
+                }
+            }
+        } catch (Exception e) {
+            return;
+        }
+        String nativeDir = getApplicationInfo().nativeLibraryDir;
+        String dir = null;
+        if (line.startsWith("builtin:")) dir = nativeDir;
+        if (line.startsWith("imported:")) dir = new File(getFilesDir(), "drivers").getAbsolutePath();
+        if (dir == null) return;
+        String name = line.substring(line.indexOf(':') + 1);
+        if (!new File(dir, name).exists()) return;
+        // libadrenotools appends the name to the folder as it is.
+        Os.setenv("REX_VULKAN_DRIVER_DIR", dir + "/", true);
+        Os.setenv("REX_VULKAN_DRIVER_NAME", name, true);
+        Os.setenv("REX_VULKAN_DRIVER_HOOK_DIR", nativeDir, true);
     }
 
     // fifawc14.toml's game_data_root line replaced (or added), the rest kept.

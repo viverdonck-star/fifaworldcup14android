@@ -23,6 +23,10 @@ ADAPT=$(ls resapk/out/res/mipmap-anydpi*/app.xml)
 tr -d '\r' < /mnt/c/wc14/app/res/mipmap-anydpi-v26/app.xml > resapk/app.src.xml
 python3 /mnt/c/wc14/scripts/axml.py resapk/app.src.xml $ADAPT $REFS
 tr -d '\r' < /mnt/c/wc14/app/AndroidManifest.xml > AndroidManifest.src.xml
+# RELEASE=1 : la version pour les autres joueurs, sans débogage (run-as...).
+if [ "$RELEASE" = 1 ]; then
+  sed -i 's/android:debuggable="true"/android:debuggable="false"/' AndroidManifest.src.xml
+fi
 python3 /mnt/c/wc14/scripts/axml.py AndroidManifest.src.xml man/AndroidManifest.xml $REFS
 (cd man && zip -q -X ../app-unsigned.apk AndroidManifest.xml)
 (cd resapk/out && zip -q -0 ../../app-unsigned.apk resources.arsc && zip -q -r ../../app-unsigned.apk res)
@@ -31,6 +35,10 @@ N=~/android-ndk-r27c/toolchains/llvm/prebuilt/linux-x86_64
 P=~/wc14/projet/pc/out/android; L=~/wc14/sdk/out/linux-arm64
 cp $L/librexruntime.so $L/librexgpu-xenos.so $P/libfifawc14*.so lib/arm64-v8a/
 cp ~/wc14/projet/launcher/out-android/liblauncher.so lib/arm64-v8a/
+# Pilotes graphiques au choix : le pont vers libadrenotools, ses crochets, et Turnip (Mesa, Android).
+G=~/wc14/projet/gpudriver/out
+cp $G/libadrenotools_bridge.so $G/adrenotools/src/hook/lib*_hook.so $G/adrenotools/src/hook/libhook_impl.so lib/arm64-v8a/
+cp "/mnt/c/Users/viver/Desktop/NBA2K14 Next Gen/android-build/out/turnip-v32/libvulkan_freedreno.so" lib/arm64-v8a/
 cp $N/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so lib/arm64-v8a/
 $N/bin/llvm-strip --strip-unneeded lib/arm64-v8a/*.so
 zip -q -r -1 app-unsigned.apk lib
@@ -38,5 +46,10 @@ zipalign -f -p 4 app-unsigned.apk app-aligned.apk
 apksigner sign --ks ~/wc14/.cle.keystore --ks-pass file:$HOME/wc14/.cle.txt --min-sdk-version 33 --out WC14-Test.apk app-aligned.apk
 apksigner verify WC14-Test.apk && echo signature-ok
 aapt dump xmltree WC14-Test.apk AndroidManifest.xml 2>/dev/null | head -60
-cp WC14-Test.apk /mnt/c/wc14/WC14-Test.apk
+if [ "$RELEASE" = 1 ]; then
+  V=$(sed -nE 's/.*versionName="([^"]+)".*/\1/p' AndroidManifest.src.xml)
+  cp WC14-Test.apk /mnt/c/wc14/WC14-v$V.apk
+else
+  cp WC14-Test.apk /mnt/c/wc14/WC14-Test.apk
+fi
 ls -la WC14-Test.apk | cut -c24-

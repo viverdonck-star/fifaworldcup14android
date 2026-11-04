@@ -156,6 +156,15 @@ class VulkanCommandProcessor : public CommandProcessor {
   }
   uint64_t GetCompletedSubmission() const { return submission_completed_; }
 
+  // GPU time by kind of work, logged every 10 s when the gpu_timing cvar is
+  // on: the work recorded after a push counts as `work` until its pop.
+  enum class GpuWork : uint32_t { kDraws, kTransfers, kResolves, kCount };
+  void GpuTimingPush(GpuWork work);
+  void GpuTimingPop();
+  // Inside a push, the work from here to the next mark or the pop counts
+  // under `name` instead (a kind of transfer, for instance).
+  void GpuTimingNamed(const std::string& name);
+
   // Sparse binds are:
   // - In a single submission, all submitted in one vkQueueBindSparse.
   // - Sent to the queue without waiting for a semaphore.

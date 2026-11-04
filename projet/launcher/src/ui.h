@@ -60,6 +60,11 @@ class Ui {
   // A line at the bottom of the window for a few seconds (e.g. why Play failed).
   // Bottom left for a few seconds; `ok` gives it a green stripe instead of red.
   void ShowMessage(std::string text, bool ok = false);
+#ifdef __ANDROID__
+  // A GPU driver the player imported (Settings, Graphics): chosen at once, or
+  // why it was refused.
+  void DriverImported(const std::string& text, bool ok);
+#endif
 
   // Set by the host: the player chose Play / Quit, or Settings, Data, Game.
   std::function<void()> on_play;

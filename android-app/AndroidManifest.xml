@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.wc14.test"
-    android:versionCode="2"
-    android:versionName="0.2">
+    android:versionCode="3"
+    android:versionName="0.3">
 
     <uses-sdk android:minSdkVersion="33" android:targetSdkVersion="34" />
 
@@ -40,5 +40,11 @@
             android:process=":game"
             android:screenOrientation="sensorLandscape"
             android:theme="@android:style/Theme.NoTitleBar.Fullscreen" />
+        <!-- The logs and exported saves, for Android's share menu. -->
+        <provider
+            android:name="com.wc14.test.ShareProvider"
+            android:authorities="com.wc14.test.share"
+            android:exported="false"
+            android:grantUriPermissions="true" />
     </application>
 </manifest>
